@@ -3,7 +3,7 @@
     <div class="toolbar">
       <h2 class="board-title">共享白板查看：{{ boardTitle }}</h2>
       <span class="status">
-        {{ isConnected ? '✅ 实时同步中' : '🔄 连接中...' }}
+        {{ isConnected ? '实时同步中' : '连接中...' }}
       </span>
       
     </div>
@@ -20,61 +20,61 @@
 </template>
 
 <script setup>
-// 确保所有需要的API都被导入
+// 导入需要用到的vue和fabric相关的东西
 import { ref, onMounted, nextTick, onUnmounted } from 'vue'
 import * as fabric from 'fabric'
 import { useRoute } from 'vue-router'
 
-// 1. 所有状态变量（响应式定义）
+// 定义需要用到的变量
 const route = useRoute()
 const shareId = route.params.shareId
 const isLoading = ref(true)
 const errorMsg = ref('')
 const boardTitle = ref('未命名白板')
-const isConnected = ref(false) // 实时同步状态
-const canvas = ref(null) // 关键：ref包裹，确保响应式
-let ws = null // WebSocket实例
-let reconnectTimer = null // 自动重连定时器
+const isConnected = ref(false) // 标记是否实时同步
+const canvas = ref(null) // 画布实例，用ref存
+let ws = null // WebSocket的实例
+let reconnectTimer = null // 自动重连的定时器
 
-// 2. WebSocket相关函数
+// WebSocket相关的函数
 // 创建WebSocket连接
 const createWebSocket = () => {
-  if (ws) ws.close() // 关闭现有连接，避免重复
+  if (ws) ws.close() // 先关旧连接，避免重复连接
 
-  // 连接后端WebSocket服务
+  // 连接后端的WebSocket服务
   ws = new WebSocket(`ws://${window.location.hostname}:3000`)
 
-  // 连接成功
+  // 连接成功的处理
   ws.onopen = () => {
     console.log('WebSocket连接成功')
     isConnected.value = true
-    // 绑定当前shareId到后端
+    // 告诉后端当前用户看的是哪个分享链接
     ws.send(JSON.stringify({ type: 'bind', shareId: shareId }))
   }
 
-  // 接收后端推送的更新（核心自动刷新逻辑）
+  // 接收后端推送的更新，自动刷新画布
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data)
       // 只处理更新类型的消息
       if (data.type === 'update' && data.content) {
-        console.log('收到保存后的更新，准备刷新画布')
+        console.log('收到更新，准备刷新画布')
         
-        // 校验画布实例是否就绪
+        // 检查画布是否准备好了
         if (!canvas.value || !(canvas.value instanceof fabric.Canvas)) {
-          console.log('画布未就绪，100ms后重试')
+          console.log('画布没准备好，100ms后再试')
           setTimeout(() => ws.onmessage(event), 100)
           return
         }
 
-        // 解析画布内容（兼容字符串/对象格式）
+        // 解析画布内容，兼容字符串和对象格式
         const jsonData = typeof data.content === 'string' 
           ? JSON.parse(data.content) 
           : data.content
 
-        // 加载最新内容到画布
+        // 把最新内容加载到画布上
         canvas.value.loadFromJSON(jsonData, async () => {
-          // 保持只读状态：禁用所有操作
+          // 设为只读，禁止所有操作
           canvas.value.forEachObject(obj => {
             obj.selectable = false
             obj.evented = false
@@ -83,16 +83,16 @@ const createWebSocket = () => {
             obj.lockRotation = true
           })
 
-          // 强制渲染（解决"加载了但不显示"问题）
+          // 强制渲染画布，解决加载后不显示的问题
           canvas.value.renderAll()
 
-          // 安全设置画布尺寸（添加延迟+兜底尺寸）
+          // 设置画布尺寸，加延迟避免出错，没值就用默认的
           await new Promise(resolve => setTimeout(resolve, 50))
           const canvasDom = document.getElementById('share-canvas')
-          const width = canvasDom.offsetWidth || 1200 // 兜底尺寸，避免为0
+          const width = canvasDom.offsetWidth || 1200 
           const height = canvasDom.offsetHeight || 800
 
-          // 优先使用fabric内置方法，兼容降级方案
+          // 设置画布大小，兼容不同写法
           if (canvas.value.setDimensions) {
             canvas.value.setDimensions({ width, height })
           } else {
@@ -100,69 +100,69 @@ const createWebSocket = () => {
             canvasDom.height = height
           }
 
-          // 最终渲染确认
+          // 最后再渲染一次
           canvas.value.renderAll()
-          console.log('画布自动刷新成功！')
+          console.log('画布刷新成功！')
         })
 
-        // 同步更新白板标题
+        // 更新白板标题
         if (data.title) {
           boardTitle.value = data.title
         }
       }
     } catch (err) {
-      console.error('自动刷新失败：', err)
+      console.error('刷新失败：', err)
       alert('更新失败，请手动刷新一次～')
     }
   }
 
-  // 连接关闭（自动重连）
+  // 连接断开时自动重连
   ws.onclose = () => {
     console.log('WebSocket断开，5秒后自动重连')
     isConnected.value = false
     reconnectTimer = setTimeout(createWebSocket, 5000)
   }
 
-  // 连接错误
+  // 连接出错的处理
   ws.onerror = (err) => {
     console.error('WebSocket错误：', err)
     isConnected.value = false
   }
 }
 
-// 关闭WebSocket连接（页面卸载时调用）
+// 关闭WebSocket连接，页面卸载时调用
 const closeWebSocket = () => {
   if (ws) ws.close()
   if (reconnectTimer) clearTimeout(reconnectTimer)
 }
 
-// 3. 加载共享白板初始内容
+// 加载共享白板的初始内容
 const loadSharedContent = async (canvasDom) => {
   try {
     // 调用后端接口，通过shareId获取白板内容
     const res = await fetch(`/api/whiteboard/get-by-share?shareId=${shareId}`)
     const data = await res.json()
 
-    // 接口错误处理
+    // 接口返回错误的处理
     if (!res.ok) throw new Error(data.error || '分享链接无效')
     if (!data.content) throw new Error('白板内容不存在')
 
     // 设置白板标题
     boardTitle.value = data.title || '未命名白板'
 
-    // 解析画布内容（兼容字符串/对象格式）
+    // 解析画布内容，兼容不同格式
     const jsonData = typeof data.content === 'string' 
       ? JSON.parse(data.content) 
       : data.content
 
-    // 校验画布实例
+    // 检查画布实例是否正常
     if (!canvas.value || !(canvas.value instanceof fabric.Canvas)) {
-      throw new Error('画布初始化失败，无法加载内容')
+      throw new Error('画布初始化失败，加载不了内容')
     }
 
     // 加载内容到画布
     canvas.value.loadFromJSON(jsonData, async () => {
-      // 禁用所有操作，保持只读
+      // 禁用所有操作，只能看不能改
       canvas.value.forEachObject(obj => {
         obj.selectable = false
         obj.evented = false
@@ -174,7 +174,7 @@ const loadSharedContent = async (canvasDom) => {
       // 强制渲染
       canvas.value.renderAll()
 
-      // 安全设置尺寸（延迟+兜底）
+      // 设置画布尺寸，加延迟防错
       await new Promise(resolve => setTimeout(resolve, 50))
       const width = canvasDom.offsetWidth || 1200
       const height = canvasDom.offsetHeight || 800
@@ -186,7 +186,7 @@ const loadSharedContent = async (canvasDom) => {
         canvasDom.height = height
       }
 
-      // 最终渲染+隐藏加载提示
+      // 最后渲染，隐藏加载提示
       await new Promise(resolve => setTimeout(resolve, 50))
       canvas.value.renderAll()
       isLoading.value = false
@@ -197,20 +197,19 @@ const loadSharedContent = async (canvasDom) => {
   }
 }
 
-// 4. 生命周期钩子
-// 页面挂载时：初始化画布+连接WebSocket
+// 页面挂载时执行的操作：初始化画布+连接WebSocket
 onMounted(async () => {
   try {
-    await nextTick() // 等待DOM完全加载
+    await nextTick() // 等DOM加载完
     const canvasDom = document.getElementById('share-canvas')
-    if (!canvasDom) throw new Error('未找到画布元素')
+    if (!canvasDom) throw new Error('没找到画布元素')
 
-    // 创建fabric画布实例（配置只读相关参数）
+    // 创建fabric画布实例，设置只读相关的配置
     canvas.value = new fabric.Canvas(canvasDom, {
       backgroundColor: '#ffffff',
-      selection: false, // 禁用选择
-      hasControls: false, // 禁用控制手柄
-      hasBorders: false, // 禁用边框
+      selection: false, // 禁止选择
+      hasControls: false, // 禁止控制手柄
+      hasBorders: false, // 禁止边框
       hoverCursor: 'default'
     })
 

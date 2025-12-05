@@ -1,5 +1,4 @@
 <template>
-  <!-- router-view：路由的“出口”，不同路径会在这里渲染对应的组件 -->
   <router-view />
 </template>
 
@@ -8,5 +7,4 @@
 </script>
 
 <style scoped>
-/* 可以留空，样式由各个页面自己管理 */
 </style>

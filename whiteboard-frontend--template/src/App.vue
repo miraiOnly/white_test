@@ -64,6 +64,14 @@
           :disabled="!canvasReady"
           :class="{ active: currentTool === 'pen' }"
         >画笔</button>
+        <!-- 橡皮擦按钮 -->
+        <button 
+          @click="setTool('eraser')" 
+          class="toolbar-btn" 
+          :disabled="!canvasReady"
+          :class="{ active: currentTool === 'eraser' }"
+          style="background-color: #7f8c8d;"
+        >橡皮擦</button>
         <button 
           @click="setTool('text')" 
           class="toolbar-btn" 
@@ -100,12 +108,12 @@
             class="color-picker"
             :disabled="!canvasReady"
           >
-          <label>粗细:</label>
+          <label>大小:</label>
           <input 
             type="number" 
             v-model.number="currentStrokeWidth" 
             min="1" 
-            max="20" 
+            max="50" 
             class="stroke-width"
             :disabled="!canvasReady"
           >
@@ -127,8 +135,8 @@
         <button 
           @click="saveWhiteboard" 
           class="toolbar-btn" 
-          style="background-color: #27ae60;"
           :disabled="!canvasReady"
+          style="background-color: #27ae60;"
         >保存白板</button>
 
         <!-- 生成分享链接按钮 -->
@@ -149,7 +157,7 @@
             @click="copyToClipboard"
             placeholder="点击复制分享链接"
           >
-          <span class="copy-tip" v-if="copySuccess">✅ 已复制！</span>
+          <span class="copy-tip" v-if="copySuccess">已复制！</span>
         </div>
         
         <!-- 缩放比例显示 -->
@@ -174,9 +182,9 @@
 import { ref, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import * as fabric from 'fabric'
 
-// 核心状态
+// 定义页面的核心状态变量
 const showBoardManager = ref(true)
-// 分享功能相关状态
+// 分享功能相关的变量
 const shareLink = ref('')
 const copySuccess = ref(false)
 const boardList = ref([])
@@ -189,19 +197,19 @@ const canvasReady = ref(false)
 let isNewBoardFlag = false
 const canvasZoom = ref(1.0)
 
-// 撤销/重做核心变量（修复：新增存档绑定+队列逻辑）
+// 撤销和重做需要用到的变量
 const undoHistory = ref([])
 const redoHistory = ref([])
 const MAX_HISTORY_LENGTH = 50
 let isRecording = false
-let currentBindBoardId = null // 绑定当前存档ID，隔离不同存档的历史
+let currentBindBoardId = null // 绑定当前存档ID，区分不同白板的历史记录
 
-// 样式控制变量
+// 样式控制的变量
 const currentColor = ref('#2c3e50')
 const currentStrokeWidth = ref(5)
 const isDashed = ref(false)
 
-// 画布状态变量
+// 画布状态相关的变量
 let isPanning = false
 let lastPointer = { x: 0, y: 0 }
 let canvasDom = null
@@ -210,11 +218,11 @@ let isDrawingShape = false
 let shapeStartPoint = null
 let currentDrawingShape = null
 
-// 保存画布状态（核心修复：绑定存档ID+初始状态）
+// 保存画布的状态，方便撤销重做
 const saveCanvasState = () => {
   if (!canvasInstance.value || isRecording || !canvasReady.value || !currentBindBoardId) return
 
-  // 序列化画布状态（包含所有必要属性）
+  // 把画布状态转成JSON格式保存
   const currentState = {
     objects: canvasInstance.value.toJSON([
       'left', 'top', 'width', 'height', 'fill', 'stroke', 
@@ -223,19 +231,17 @@ const saveCanvasState = () => {
     ]).objects,
     viewportTransform: [...canvasInstance.value.viewportTransform],
     canvasZoom: canvasZoom.value,
-    boardId: currentBindBoardId // 绑定存档ID
+    boardId: currentBindBoardId // 绑定对应的白板ID
   }
   
   undoHistory.value.push(currentState)
   if (undoHistory.value.length > MAX_HISTORY_LENGTH) {
-    undoHistory.value.shift() // 保留最新的50条
+    undoHistory.value.shift() // 只保留最新的50条记录
   }
-  redoHistory.value = [] // 新操作清空重做队列
+  redoHistory.value = [] // 有新操作就清空重做的记录
 }
 
-// 撤销函数（核心修复：队列逻辑+存档隔离）
-// 撤销函数（强化渲染逻辑）
-// 撤销函数（强化渲染逻辑）
+// 撤销操作
 const undo = () => {
   if (undoHistory.value.length <= 1 || !canvasInstance.value || !canvasReady.value) {
     alert('已无可撤销操作！')
@@ -244,18 +250,18 @@ const undo = () => {
 
   isRecording = true
 
-  // 1. 弹出当前状态存入重做队列
+  // 把当前状态放到重做队列里
   const currentState = undoHistory.value.pop()
   redoHistory.value.push(currentState)
   
-  // 2. 获取上一个状态并恢复
+  // 取出上一个状态恢复
   const prevState = undoHistory.value[undoHistory.value.length - 1]
   canvasInstance.value.loadFromJSON(
     { objects: prevState.objects },
     async () => {
-      // 核心修复：强化渲染逻辑
+      // 恢复画布的显示状态
       try {
-        // ① 先重置画布尺寸（确保适配容器，避免内容偏移）
+        // 重置画布尺寸，防止内容显示偏移
         const canvasDom = document.getElementById('whiteboard-canvas')
         if (canvasDom) {
           canvasInstance.value.setDimensions({
@@ -264,18 +270,18 @@ const undo = () => {
           })
         }
 
-        // ② 同步缩放平移状态（确保内容在可视区域）
-        canvasInstance.value.viewportTransform = [...prevState.viewportTransform] // 深拷贝，避免引用问题
+        // 同步缩放和平移的状态
+        canvasInstance.value.viewportTransform = [...prevState.viewportTransform]
         canvasZoom.value = prevState.canvasZoom
 
-        // ③ 重置工具状态（避免交互影响渲染）
+        // 重置当前工具的状态
         setTool(currentTool.value)
 
-        // ④ 多重渲染保障（覆盖异步延迟）
-        canvasInstance.value.renderAll() // 即时渲染
-        await new Promise(resolve => setTimeout(resolve, 20)) // 延迟20ms，等待fabric内部处理
-        canvasInstance.value.renderAll() // 二次渲染
-        canvasInstance.value.requestRenderAll() // 强制渲染（fabric底层API）
+        // 多次渲染确保内容显示正常
+        canvasInstance.value.renderAll()
+        await new Promise(resolve => setTimeout(resolve, 20))
+        canvasInstance.value.renderAll()
+        canvasInstance.value.requestRenderAll()
 
         console.log('撤销后渲染完成')
       } catch (err) {
@@ -291,7 +297,7 @@ const undo = () => {
   )
 }
 
-// 重做函数（同样强化渲染逻辑）
+// 重做操作
 const redo = () => {
   if (redoHistory.value.length === 0 || !canvasInstance.value || !canvasReady.value) {
     alert('已无可重做操作！')
@@ -300,17 +306,17 @@ const redo = () => {
 
   isRecording = true
 
-  // 1. 弹出重做状态存入撤销队列
+  // 把重做队列里的状态放回撤销队列
   const redoState = redoHistory.value.pop()
   undoHistory.value.push(redoState)
   
-  // 2. 恢复重做状态
+  // 恢复重做的状态
   canvasInstance.value.loadFromJSON(
     { objects: redoState.objects },
     async () => {
-      // 核心修复：强化渲染逻辑
+      // 恢复画布的显示状态
       try {
-        // ① 重置画布尺寸
+        // 重置画布尺寸
         const canvasDom = document.getElementById('whiteboard-canvas')
         if (canvasDom) {
           canvasInstance.value.setDimensions({
@@ -319,14 +325,14 @@ const redo = () => {
           })
         }
 
-        // ② 同步缩放平移状态
+        // 同步缩放和平移的状态
         canvasInstance.value.viewportTransform = [...redoState.viewportTransform]
         canvasZoom.value = redoState.canvasZoom
 
-        // ③ 重置工具状态
+        // 重置当前工具的状态
         setTool(currentTool.value)
 
-        // ④ 多重渲染保障
+        // 多次渲染确保内容显示正常
         canvasInstance.value.renderAll()
         await new Promise(resolve => setTimeout(resolve, 20))
         canvasInstance.value.renderAll()
@@ -346,11 +352,11 @@ const redo = () => {
   )
 }
 
-// 控制按钮禁用状态（修复：判断历史长度>1）
+// 判断撤销/重做按钮能不能点击
 const canUndo = () => undoHistory.value.length > 1 && canvasReady.value
 const canRedo = () => redoHistory.value.length > 0 && canvasReady.value
 
-// 页面挂载
+// 页面加载完成后执行的操作
 onMounted(async () => {
   await fetchAllBoards()
   await nextTick()
@@ -364,11 +370,11 @@ onMounted(async () => {
       alert('画布加载失败，请刷新页面重试')
     }
   }, 500)
-  // 绑定键盘事件
+  // 绑定键盘按键事件
   window.addEventListener('keydown', handleKeydown)
 })
 
-// 页面卸载
+// 页面关闭时执行的操作
 onUnmounted(() => {
   if (canvasInstance.value) {
     canvasInstance.value.dispose()
@@ -379,7 +385,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
 })
 
-// 全局滚轮拦截
+// 监听全局滚轮事件，处理画布缩放
 const bindGlobalWheelListener = () => {
   globalWheelListener = (e) => {
     if (e.ctrlKey) {
@@ -394,14 +400,14 @@ const bindGlobalWheelListener = () => {
   document.addEventListener('wheel', globalWheelListener, { passive: false, capture: true })
 }
 
-// 画布缩放
+// 处理画布的缩放
 const handleCanvasZoom = (e) => {
   const canvas = canvasInstance.value
   if (!canvas || !canvasDom) return
 
   const delta = e.deltaY > 0 ? -0.1 : 0.1
   let newZoom = canvasZoom.value + delta
-  newZoom = Math.max(0.2, Math.min(3, newZoom))
+  newZoom = Math.max(0.2, Math.min(3, newZoom)) // 限制缩放范围
 
   const rect = canvasDom.getBoundingClientRect()
   const canvasX = (e.clientX - rect.left) / rect.width * canvasDom.width
@@ -412,7 +418,7 @@ const handleCanvasZoom = (e) => {
   canvas.renderAll()
 }
 
-// 获取存档列表
+// 获取所有的白板存档列表
 const fetchAllBoards = async () => {
   try {
     const res = await fetch('/api/whiteboards')
@@ -424,7 +430,7 @@ const fetchAllBoards = async () => {
   }
 }
 
-// 创建新白板（核心修复：初始化撤销历史+保存初始态）
+// 创建新的白板
 const createNewBoard = async () => {
   isLoading.value = true
   canvasReady.value = false
@@ -442,11 +448,11 @@ const createNewBoard = async () => {
     canvasInstance.value = canvas
     canvasReady.value = true
 
-    // 初始化撤销历史（核心修复）
+    // 初始化撤销重做的历史记录
     undoHistory.value = []
     redoHistory.value = []
-    currentBindBoardId = 'new_' + Date.now() // 绑定临时ID
-    saveCanvasState() // 保存初始空白态
+    currentBindBoardId = 'new_' + Date.now() // 给新白板加个临时ID
+    saveCanvasState() // 保存初始的空白状态
   } catch (err) {
     console.error('创建新白板失败：', err)
     alert('创建失败，请重试')
@@ -457,7 +463,7 @@ const createNewBoard = async () => {
   }
 }
 
-// 加载已有存档（核心修复：初始化撤销历史+保存初始态）
+// 加载已有的白板存档
 const loadBoard = async (boardId) => {
   isLoading.value = true
   canvasReady.value = false
@@ -483,11 +489,11 @@ const loadBoard = async (boardId) => {
     shareLink.value = ''
     copySuccess.value = false
 
-    // 初始化撤销历史（核心修复）
+    // 初始化撤销重做的历史记录
     undoHistory.value = []
     redoHistory.value = []
-    currentBindBoardId = boardId // 绑定当前存档ID
-    saveCanvasState() // 保存加载后的初始态
+    currentBindBoardId = boardId // 绑定当前白板的ID
+    saveCanvasState() // 保存加载后的初始状态
   } catch (err) {
     console.error('加载白板失败：', err)
     alert(err.message || '加载失败，请重试')
@@ -498,7 +504,7 @@ const loadBoard = async (boardId) => {
   }
 }
 
-// 删除存档
+// 删除白板存档
 const deleteBoard = async (boardId) => {
   if (!confirm('确定要删除这个存档吗？删除后无法恢复！')) return
   try {
@@ -536,7 +542,7 @@ const initCanvas = async (content = {}) => {
       wheelEventTarget: null
     })
 
-    // 监听绘制/修改事件，保存状态
+    // 监听画布的绘制和修改事件，保存状态
     canvas.on('path:created', () => setTimeout(saveCanvasState, 10))
     canvas.on('object:modified', () => setTimeout(saveCanvasState, 10))
 
@@ -554,7 +560,7 @@ const initCanvas = async (content = {}) => {
   })
 }
 
-// 返回管理界面（核心修复：清空撤销历史）
+// 返回存档管理界面
 const backToManager = async () => {
   isLoading.value = true
   try {
@@ -571,7 +577,7 @@ const backToManager = async () => {
     shareLink.value = ''
     copySuccess.value = false
 
-    // 清空撤销历史（核心修复）
+    // 清空撤销重做的历史记录
     undoHistory.value = []
     redoHistory.value = []
     currentBindBoardId = null
@@ -582,7 +588,7 @@ const backToManager = async () => {
   }
 }
 
-// 保存白板
+// 保存白板内容
 const saveWhiteboard = async () => {
   const canvas = canvasInstance.value
   if (!canvas || !canvasReady.value) return
@@ -610,7 +616,7 @@ const saveWhiteboard = async () => {
     })
     const saveData = await saveRes.json()
     if (saveData.success) {
-      alert('✅ 保存成功！')
+      alert('保存成功！')
       await fetchAllBoards()
     }
   } catch (err) {
@@ -621,7 +627,7 @@ const saveWhiteboard = async () => {
   }
 }
 
-// 更新标题
+// 更新白板标题
 const updateBoardTitle = async () => {
   if (isNewBoardFlag || !currentBoardId.value || !canvasReady.value) return
   try {
@@ -639,40 +645,58 @@ const updateBoardTitle = async () => {
   }
 }
 
-// 工具切换
+// 切换绘图工具
 const setTool = (toolType) => {
   const canvas = canvasInstance.value
   if (!canvas || !canvasReady.value) return
 
-  // 彻底重置画布状态
+  // 重置画布的所有状态
   canvas.isDrawingMode = false
   canvas.selection = false
   canvas.discardActiveObject()
+  // 移除所有鼠标事件监听，避免冲突
   canvas.off('mouse:down')
   canvas.off('mouse:move')
   canvas.off('mouse:up')
+  canvas.off('mouse:out')
+  canvas.off('mouse:in')
   canvas.off('object:selected')
   isDrawingShape = false
   currentDrawingShape = null
   shapeStartPoint = null
 
+  // 重置光标样式
+  canvasDom.style.cursor = 'default'
+
   currentTool.value = toolType
 
-  // 选择模式
+  // 选择工具模式
   if (toolType === 'select') {
     canvas.selection = true
     initSelectModeInteractions(canvas)
+    canvasDom.style.cursor = 'default'
   }
 
-  // 画笔模式
+  // 画笔工具模式
   else if (toolType === 'pen') {
     canvas.isDrawingMode = true
     canvas.freeDrawingBrush = new fabric.PencilBrush(canvas)
     canvas.freeDrawingBrush.width = currentStrokeWidth.value
     canvas.freeDrawingBrush.color = currentColor.value
+    canvasDom.style.cursor = 'crosshair'
   }
 
-  // 文本模式
+  // 橡皮擦工具模式
+  else if (toolType === 'eraser') {
+    canvas.isDrawingMode = true
+    // 用白色画笔模拟擦除效果（和画布背景色一致）
+    canvas.freeDrawingBrush = new fabric.PencilBrush(canvas)
+    canvas.freeDrawingBrush.width = currentStrokeWidth.value
+    canvas.freeDrawingBrush.color = '#ffffff'
+    canvasDom.style.cursor = 'crosshair'
+  }
+
+  // 文本工具模式
   else if (toolType === 'text') {
     canvas.selection = true
     canvas.on('mouse:down', (event) => {
@@ -702,9 +726,10 @@ const setTool = (toolType) => {
         })
       }, 50)
     })
+    canvasDom.style.cursor = 'text'
   }
 
-  // 矩形工具
+  // 矩形工具模式
   else if (toolType === 'rect') {
     canvas.selection = false
     canvas.on('mouse:down', (event) => {
@@ -744,9 +769,10 @@ const setTool = (toolType) => {
       currentDrawingShape = null
       saveCanvasState()
     })
+    canvasDom.style.cursor = 'crosshair'
   }
 
-  // 圆形工具
+  // 圆形工具模式
   else if (toolType === 'circle') {
     canvas.selection = false
     canvas.on('mouse:down', (event) => {
@@ -782,9 +808,10 @@ const setTool = (toolType) => {
       currentDrawingShape = null
       saveCanvasState()
     })
+    canvasDom.style.cursor = 'crosshair'
   }
 
-  // 线段工具
+  // 线段工具模式
   else if (toolType === 'line') {
     canvas.selection = false
     canvas.on('mouse:down', (event) => {
@@ -815,12 +842,13 @@ const setTool = (toolType) => {
       currentDrawingShape = null
       saveCanvasState()
     })
+    canvasDom.style.cursor = 'crosshair'
   }
 }
 
-// 选择模式交互
+// 选择模式的交互逻辑
 const initSelectModeInteractions = (canvas) => {
-  // 平移画布（Alt+拖动）
+  // 平移画布（按住Alt键拖动）
   canvas.on('mouse:down', (opt) => {
     if (opt.e.altKey) {
       isPanning = true
@@ -857,28 +885,24 @@ const initSelectModeInteractions = (canvas) => {
   })
 }
 
-// 删除选中元素
-// 删除选中元素（简化版：无弹窗提示，直接删除）
+// 删除选中的画布元素
 const deleteActiveElement = () => {
   const canvas = canvasInstance.value
   if (!canvas || !canvasReady.value) return
 
   const activeObjects = canvas.getActiveObjects()
   if (activeObjects.length > 0) {
-    saveCanvasState() // 保留删除前保存状态（不影响撤销）
+    saveCanvasState()
     canvas.remove(...activeObjects)
     canvas.discardActiveObject()
     canvas.renderAll()
-    // 移除删除成功的alert提示
   } else {
     const activeObject = canvas.getActiveObject()
     if (activeObject) {
-      saveCanvasState() // 保留删除前保存状态
+      saveCanvasState()
       canvas.remove(activeObject)
       canvas.renderAll()
-      // 移除删除成功的alert提示
     }
-    // 移除“未选中元素”的alert提示
   }
 }
 
@@ -887,7 +911,7 @@ const generateShareLink = async () => {
   const canvas = canvasInstance.value
   if (!canvas || !canvasReady.value) return
 
-  // 新白板必须先保存才能生成链接
+  // 新白板要先保存才能生成链接
   if (isNewBoardFlag || !currentBoardId.value) {
     alert('请先保存当前白板再生成分享链接')
     return
@@ -911,7 +935,7 @@ const generateShareLink = async () => {
   }
 }
 
-// 复制链接到剪贴板
+// 复制分享链接到剪贴板
 const copyToClipboard = () => {
   if (!shareLink.value) return
   
@@ -925,19 +949,27 @@ const copyToClipboard = () => {
     })
 }
 
-// 监听样式变化
+// 监听样式变化，实时更新画笔/橡皮擦样式
 watch([currentColor, currentStrokeWidth, isDashed], () => {
   const canvas = canvasInstance.value
-  if (!canvas || currentTool.value !== 'pen') return
+  if (!canvas) return
   
-  canvas.freeDrawingBrush.color = currentColor.value
-  canvas.freeDrawingBrush.width = currentStrokeWidth.value
+  // 更新画笔样式
+  if (currentTool.value === 'pen') {
+    canvas.freeDrawingBrush.color = currentColor.value
+    canvas.freeDrawingBrush.width = currentStrokeWidth.value
+  }
+  // 更新橡皮擦大小
+  else if (currentTool.value === 'eraser') {
+    canvas.freeDrawingBrush.width = currentStrokeWidth.value
+  }
 })
 
-// 快捷键处理
+// 键盘快捷键处理
 const toolShortcuts = {
   'select': 'v',
   'pen': 'p',
+  'eraser': 'e',
   'text': 't',
   'rect': 'r',
   'circle': 'c',
@@ -950,7 +982,7 @@ const handleKeydown = (e) => {
   const isCtrl = e.ctrlKey || e.metaKey
   const key = e.key.toLowerCase()
 
-  // 撤销/重做快捷键
+  // 撤销/重做的快捷键
   if (isCtrl) {
     if (key === 'z' && !e.shiftKey) {
       e.preventDefault()
@@ -962,7 +994,7 @@ const handleKeydown = (e) => {
     }
   }
 
-  // 工具切换快捷键
+  // 工具切换的快捷键
   if (!isCtrl && !e.metaKey && !e.altKey) {
     const tool = Object.keys(toolShortcuts).find(t => toolShortcuts[t] === key)
     if (tool) {
@@ -971,25 +1003,25 @@ const handleKeydown = (e) => {
     }
   }
 
-  // 删除选中元素
+  // 删除选中元素的快捷键
   if (key === 'delete' || key === 'backspace') {
     e.preventDefault()
     deleteActiveElement()
   }
 }
 
-// 监听工具切换
+// 监听工具切换，更新画布状态
 watch(currentTool, (newTool) => {
   const canvas = canvasInstance.value
   if (canvas) {
-    canvas.isDrawingMode = newTool === 'pen'
+    canvas.isDrawingMode = newTool === 'pen' || newTool === 'eraser'
     canvas.selection = newTool === 'select' || newTool === 'text'
   }
 })
 </script>
 
 <style scoped>
-/* 全局样式 */
+/* 样式部分保持不变 */
 html, body {
   touch-action: manipulation;
   overflow-x: hidden;
@@ -1005,7 +1037,6 @@ html, body {
   font-family: "Microsoft Yahei", sans-serif;
 }
 
-/* 管理界面样式 */
 .board-manager {
   background-color: #f9fafb;
   padding: 30px;
@@ -1105,7 +1136,6 @@ html, body {
   font-size: 16px;
 }
 
-/* 绘图界面样式 */
 .whiteboard-wrapper {
   position: relative;
 }
@@ -1122,7 +1152,6 @@ html, body {
   flex-wrap: wrap;
 }
 
-/* 样式控制区域 */
 .style-controls {
   display: flex;
   align-items: center;
@@ -1242,7 +1271,6 @@ html, body {
   border-radius: 6px;
 }
 
-/* 适配小屏幕 */
 @media (max-width: 768px) {
   .whiteboard-toolbar {
     gap: 8px;
@@ -1264,7 +1292,6 @@ html, body {
   }
 }
 
-/* 分享链接样式 */
 .share-link-wrap {
   display: flex;
   align-items: center;
@@ -1294,7 +1321,6 @@ html, body {
   white-space: nowrap;
 }
 
-/* 适配小屏幕 */
 @media (max-width: 768px) {
   .share-link-wrap {
     margin-top: 10px;
